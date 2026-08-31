@@ -89,29 +89,36 @@ OMARCHY_VERSION=4.0.2 ./build-tart.sh
 
 ### How the Build Pipeline Works
 
-```
-host (macOS Apple Silicon)                         Ubuntu Builder VM (/dev/vda)
-──────────────────────────                         ────────────────────────────
-1. Allocate 40 GB target disk (.build/rootdisk.img)
-2. Download Arch Linux ARM rootfs (alarm-rootfs.tgz)
-3. Clone Ubuntu base & upload assets via Packer ──> Boots headlessly with /dev/vdb attached
-                                                    1. Partition /dev/vdb:
-                                                       - /dev/vdb1: 512 MB ESP (FAT32, /boot/efi)
-                                                       - /dev/vdb2: 40 GB Root (ext4, /)
-                                                    2. Extract ALARM rootfs into ext4 root
-                                                    3. Mount ESP to /target/boot/efi
-                                                    4. Mount host pacman cache (VirtioFS)
-                                                    5. Chroot: bootstrap keyring, base packages,
-                                                       user setup, 0440 sudoers, systemd-networkd
-                                                    6. Install GRUB EFI (\EFI\BOOT\BOOTAA64.EFI)
-                                                    7. Set software rendering flags (llvmpipe)
-                                                    8. Build & install Omarchy 4.0.2 via omarchy-mac
-                                                    9. Write BUILD-STATUS to ESP and shutdown
-4. Host mounts ESP, verifies BUILD-STATUS == OK <── VM powers down
-5. Swap .build/rootdisk.img into ~/.tart/vms/omarchy/disk.img
-6. Configure display: 1512x982pt, --display-refit, 6 CPUs, 12 GB RAM
-```
+```mermaid
+flowchart TD
+    subgraph Host["1. Host Preparation (macOS Apple Silicon)"]
+        A[Download Arch Linux ARM Rootfs\nalarm-rootfs.tgz] --> B[Create 40 GB Sparse Disk\n.build/rootdisk.img]
+        B --> C[Prepare VirtioFS Package Cache\n.build/pkg-cache]
+    end
 
+    subgraph Phase1["2. Phase 1 — Packer & Asset Staging"]
+        C --> D[Packer Clones Base VM\nghcr.io/cirruslabs/ubuntu:latest]
+        D --> E[Upload Rootfs & provision.sh\nover SSH into Builder VM]
+    end
+
+    subgraph Phase2["3. Phase 2 — In-Guest Provisioning (/dev/vdb)"]
+        E --> F[Boot Builder VM Headless\nAttach /dev/vdb & VirtioFS Cache]
+        F --> G[Partition /dev/vdb\nESP: 512MB FAT32 (/boot/efi)\nRoot: 40GB ext4 (/)]
+        G --> H[Extract ALARM Rootfs & Bind Chroot\n/dev, /proc, /sys, /run, /dev/pts]
+        H --> I[Bootstrap Base System & Keyring\nInstall GRUB EFI (\\EFI\\BOOT\\BOOTAA64.EFI)]
+        I --> J[Configure Software Rendering (llvmpipe)\nLIBGL_ALWAYS_SOFTWARE=1]
+        J --> K[Build & Install Omarchy 4.0.2\nvia omarchy-mac (quattro)]
+        K --> L[Write BUILD-STATUS to ESP\nShutdown Builder VM]
+    end
+
+    subgraph PostBuild["4. Verification & Disk Swap"]
+        L --> M[Host Verifies BUILD-STATUS == OK\nvia hdiutil / diskutil]
+        M --> N[Swap Target Disk Image\n~/.tart/vms/omarchy/disk.img]
+        N --> O[Configure Display & Hardware\n1512x982pt, --display-refit, 6 CPU, 12GB RAM]
+    end
+
+    O --> P([Ready-to-Run Tart VM])
+```
 ---
 
 ## Verification with Cua Driver
