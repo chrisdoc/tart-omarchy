@@ -36,10 +36,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Tooling Dependencies
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
-          brew update --quiet
-          brew install cirruslabs/cli/tart hashicorp/tap/packer
-
+          brew tap cirruslabs/cli
+          brew trust cirruslabs/cli || true
+          brew install cirruslabs/cli/tart
+          command -v packer >/dev/null || brew install packer
       - name: Determine Image Version
         id: meta
         run: |
