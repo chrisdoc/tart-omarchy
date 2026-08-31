@@ -1,45 +1,82 @@
 # tart-omarchy
 
-Build and run native **ARM64 Tart VM images of Omarchy 4 (Quattro)** for Apple Silicon.
+Native **ARM64 Tart VM image of Omarchy 4 (Quattro)** for Apple Silicon Macs (M1/M2/M3/M4).  
+Boots directly into the Omarchy Hyprland Wayland desktop with full-width 16:10 display support.
 
 ---
 
-## Quick Start (Pre-built OCI Image)
+## Quick Start (Run the Pre-built Image)
 
-You can pull and run the pre-built, ready-to-use OCI image directly from GitHub Container Registry:
-
+### 1. Install Tart
+If you don't have [Tart](https://tart.run/) installed:
 ```bash
-# Clone the published image from GHCR
-tart clone ghcr.io/chrisdoc/tart-omarchy:latest omarchy
+brew install cirruslabs/cli/tart
+```
 
-# Run the desktop VM
+### 2. Pull and Clone the VM Image
+Pull the pre-built, ready-to-run OCI image directly from GitHub Container Registry:
+```bash
+tart clone ghcr.io/chrisdoc/tart-omarchy:latest omarchy
+```
+*(Or pull a specific release tag, e.g. `ghcr.io/chrisdoc/tart-omarchy:4.0.2`)*
+
+### 3. Launch the Desktop VM
+```bash
 tart run omarchy
 ```
 
-**Login Credentials**: `omarchy` / `omarchy`
+---
+
+## VM Credentials & Daily Use
+
+- **Default User**: `omarchy`
+- **Default Password**: `omarchy`
+- **Root Access**: `sudo` (passwordless)
+
+### Common Commands
+
+#### SSH Access
+Once you enable SSH in Omarchy (`omarchy-setup-security-sshd` or firewall settings):
+```bash
+ssh omarchy@$(tart ip omarchy)
+```
+
+#### Adjusting CPU & Memory
+```bash
+# Allocate 8 CPUs and 16 GB of RAM
+tart set omarchy --cpu 8 --memory 16384
+```
+
+#### Changing Display Resolution
+```bash
+# Configure resolution with dynamic window refit
+tart set omarchy --display 1512x982pt --display-refit
+```
+
+#### Stop or Delete the VM
+```bash
+tart stop omarchy
+tart delete omarchy
+```
 
 ---
 
-## Why This Exists
+## About Omarchy on Apple Silicon
 
-Omarchy officially publishes an **x86_64 ISO** without an official aarch64 image. Tart uses Apple's `Virtualization.framework`, which requires native **arm64** guests on Apple Silicon.
-
-This repository builds a clean native ARM64 image from upstream components:
-- **Arch Linux ARM (`aarch64`)**: Base Linux distribution, kernel (`Image`), and initramfs.
+Omarchy's official ISO is x86_64-only and cannot boot on Apple Silicon virtualization. This project provides a native ARM64 build running on Apple's `Virtualization.framework` using:
+- **Arch Linux ARM (`aarch64`)**: Core base system, kernel (`Image`), and initramfs.
 - **[omarchy-mac](https://github.com/omarchy-mac/omarchy-mac)** (Quattro branch): The community aarch64 port of Omarchy 4.0.2 with native ARM64 package builds.
-- **Mesa `llvmpipe` Software Rendering**: Configured with `LIBGL_ALWAYS_SOFTWARE=1` and `WLR_RENDERER_ALLOW_SOFTWARE=1` to run Hyprland Wayland smoothly on Apple Virtualization.framework without requiring proprietary GPU pass-through drivers.
-- **VirtioFS Package Caching**: Caches downloaded pacman packages in `.build/pkg-cache` on macOS across builds.
+- **Mesa `llvmpipe` Software Rendering**: Configured with `LIBGL_ALWAYS_SOFTWARE=1` and `WLR_RENDERER_ALLOW_SOFTWARE=1` to run Hyprland Wayland smoothly on Apple Virtualization.framework without requiring proprietary GPU drivers.
+- **VirtioFS Package Caching**: Caches downloaded packages in `.build/pkg-cache` for instant rebuilds.
 
 ---
 
-## Building From Source
+## Building From Source (Developers)
 
 ### Prerequisites
-- Apple Silicon Mac (M1/M2/M3/M4) running macOS 13+
-- [Tart](https://tart.run/) and [Packer](https://www.packer.io/):
-  ```bash
-  brew install cirruslabs/cli/tart hashicorp/tap/packer
-  ```
+```bash
+brew install cirruslabs/cli/tart hashicorp/tap/packer
+```
 
 ### Build Command
 ```bash
@@ -50,14 +87,7 @@ This repository builds a clean native ARM64 image from upstream components:
 OMARCHY_VERSION=4.0.2 ./build-tart.sh
 ```
 
-### Run the VM
-```bash
-tart run omarchy
-```
-
----
-
-## How the Build Works
+### How the Build Pipeline Works
 
 ```
 host (macOS Apple Silicon)                         Ubuntu Builder VM (/dev/vda)
@@ -86,18 +116,18 @@ host (macOS Apple Silicon)                         Ubuntu Builder VM (/dev/vda)
 
 ## Verification with Cua Driver
 
-This VM build is verified using [Cua Driver](https://cua.ai):
+The desktop environment and display state are verified using [Cua Driver](https://cua.ai):
 ```bash
-# Discover Tart window
+# Discover running Tart window
 cua-driver call --tool list_windows --args '{}'
 
-# Inspect accessibility tree & display state
+# Inspect accessibility tree & layout
 cua-driver call --tool get_window_state --args '{"pid": <PID>, "window_id": <WINDOW_ID>, "include_screenshot": false}'
 ```
 
 ---
 
-## Publishing to GHCR
+## Publishing to GHCR (Maintainers)
 
 ```bash
 gh auth refresh -s write:packages
