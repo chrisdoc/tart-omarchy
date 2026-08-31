@@ -18,6 +18,11 @@ on:
         required: false
         default: true
         type: boolean
+      runner:
+        description: 'Runner label (e.g. macos-15 or self-hosted)'
+        required: false
+        default: 'macos-15'
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,7 +31,7 @@ concurrency:
 jobs:
   build-and-publish:
     name: Build & Push Tart OCI Image
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     permissions:
       contents: read
       packages: write
@@ -73,6 +78,7 @@ jobs:
       - name: Build Native ARM64 Tart VM Image
         env:
           VM_NAME: omarchy
+          OMARCHY_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           ./build-tart.sh
 

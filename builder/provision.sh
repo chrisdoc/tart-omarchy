@@ -9,6 +9,8 @@
 #              entry registered in the firmware (persists in the VM NVRAM,
 #              keyed by partition GUID so it survives the disk swap).
 set -euo pipefail
+OMARCHY_VERSION="${OMARCHY_VERSION:-4.0.2}"
+
 
 # survive SSH session teardowns (mid-build disconnects must not kill us)
 trap '' HUP
@@ -182,6 +184,9 @@ EOF
 for p in /target/boot/efi/grub.cfg /target/boot/efi/EFI/BOOT/grub.cfg /target/boot/efi/EFI/arch/grub.cfg /target/boot/efi/EFI/ubuntu/grub.cfg /target/boot/efi/boot/grub/grub.cfg /target/boot/efi/boot/efi/grub/grub.cfg; do
   cp /target/boot/efi/grub/grub.cfg "\$p"
 done
+log "recording Omarchy version ($OMARCHY_VERSION)"
+echo "$OMARCHY_VERSION" > /target/etc/omarchy-version
+
 
 
 log "installing Omarchy 4 (omarchy-mac) inside the chroot"

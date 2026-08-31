@@ -23,6 +23,11 @@ variable "vm_name" {
   type    = string
   default = "omarchy"
 }
+variable "omarchy_version" {
+  type    = string
+  default = "4.0.2"
+}
+
 
 variable "root_disk" {
   type    = string

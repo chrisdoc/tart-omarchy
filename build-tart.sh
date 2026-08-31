@@ -19,6 +19,7 @@
 
 set -euo pipefail
 
+OMARCHY_VERSION="${OMARCHY_VERSION:-4.0.2}"
 VM_NAME="${VM_NAME:-omarchy}"
 WORK="$(pwd)/.build"
 DL="$WORK/dl"
@@ -67,6 +68,7 @@ run_packer() {
   say "packer: cloning the ubuntu arm64 base + uploading build inputs"
   (cd "$WORK/packer" && packer build \
     -var "vm_name=$VM_NAME" \
+    -var "omarchy_version=$OMARCHY_VERSION" \
     -var "root_disk=$ROOT_DISK" \
     -var "rootfs=$DL/alarm-rootfs.tgz" \
     omarchy.pkr.hcl)
@@ -85,7 +87,7 @@ run_provision() {
     (( t > 300 )) && die "builder VM did not come up (see $WORK/console.log)"
   done
   say "guest agent is up; launching the provision script"
-  tart exec "$VM_NAME" sh -c 'sudo bash -c "setsid nohup bash /home/admin/provision.sh >/home/admin/provision.log 2>&1 &"' \
+  tart exec "$VM_NAME" sh -c "sudo bash -c 'OMARCHY_VERSION=$OMARCHY_VERSION setsid nohup bash /home/admin/provision.sh >/home/admin/provision.log 2>&1 &'" \
     || die "could not launch the provision script"
   say "provision running detached; polling progress (Ctrl-C to stop watching)"
   sleep 20

@@ -54,8 +54,14 @@
 
 ### Building & Running the VM
 ```bash
-# Build the native ARM64 Omarchy VM from source (~30-45 min, cached subsequent runs)
+# Build default version (4.0.2)
 ./build-tart.sh
+
+# Build with a custom version / tag
+OMARCHY_VERSION=4.0.2 ./build-tart.sh
+
+# Push built image to GitHub Container Registry (OCI)
+tart push omarchy ghcr.io/chrisdoc/tart-omarchy:4.0.2 ghcr.io/chrisdoc/tart-omarchy:latest
 
 # Run the graphical Omarchy VM in Tart (opens GUI window)
 tart run omarchy
