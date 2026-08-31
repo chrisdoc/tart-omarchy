@@ -72,7 +72,7 @@ jobs:
           echo "Target repository: ${REPO_LOWER}"
 
       - name: Restore Pacman Package Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build/pkg-cache
           key: pacman-pkg-cache-${{ runner.os }}-${{ steps.meta.outputs.version }}-${{ github.sha }}
