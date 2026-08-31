@@ -90,34 +90,47 @@ OMARCHY_VERSION=4.0.2 ./build-tart.sh
 ### How the Build Pipeline Works
 
 ```mermaid
-flowchart TD
-    subgraph Host["1. Host Preparation (macOS Apple Silicon)"]
-        A["Download Arch Linux ARM Rootfs<br/>alarm-rootfs.tgz"] --> B["Create 40 GB Sparse Disk<br/>.build/rootdisk.img"]
-        B --> C["Prepare VirtioFS Package Cache<br/>.build/pkg-cache"]
+sequenceDiagram
+    autonumber
+    actor Dev as Developer / CI
+    participant Host as macOS Host
+    participant Packer as Packer (tart-cli)
+    participant Builder as Ubuntu Builder VM
+    participant Chroot as Arch Linux ARM Chroot
+    participant TargetDisk as Target Disk (/dev/vdb)
+    participant GHCR as GitHub Container Registry
+
+    Dev->>Host: Run ./build-tart.sh
+    Note over Host: 1. Download ALARM rootfs<br/>2. Create 40 GB sparse disk (.build/rootdisk.img)<br/>3. Setup VirtioFS pkg-cache
+
+    Host->>Packer: Start Packer build (omarchy.pkr.hcl)
+    Packer->>GHCR: Pull base VM (cirruslabs/ubuntu:latest)
+    Packer->>Builder: Boot base VM & Upload rootfs + provision.sh over SSH
+    Builder-->>Packer: Assets staged & VM shut down
+    Packer-->>Host: Base VM ready
+
+    Host->>Builder: Boot VM headless with --disk /dev/vdb & --dir pkg-cache
+    Host->>Builder: Launch provision.sh via tart exec (detached)
+
+    rect rgb(30, 40, 50)
+        Note over Builder,TargetDisk: In-Guest Provisioning
+        Builder->>TargetDisk: Partition GPT: 512MB ESP (vdb1) + 40GB ext4 Root (vdb2)
+        Builder->>TargetDisk: Extract ALARM rootfs to /target
+        Builder->>TargetDisk: Mount ESP to /target/boot/efi & bind VirtioFS cache
+        Builder->>Chroot: Enter chroot & initialize pacman keyring
+        Chroot->>Chroot: Install base packages (kernel, systemd, networking)
+        Chroot->>TargetDisk: Install GRUB EFI removable bootloader
+        Chroot->>Chroot: Configure Mesa llvmpipe software rendering
+        Chroot->>Chroot: Build & install Omarchy 4.0.2 packages (omarchy-mac)
+        Chroot->>TargetDisk: Write BUILD-STATUS == OK to ESP
     end
 
-    subgraph Phase1["2. Phase 1 — Packer & Asset Staging"]
-        C --> D["Packer Clones Base VM<br/>ghcr.io/cirruslabs/ubuntu:latest"]
-        D --> E["Upload Rootfs & provision.sh<br/>over SSH into Builder VM"]
-    end
+    Builder-->>Host: Builder VM powers down
+    Host->>TargetDisk: Mount ESP out-of-band & verify BUILD-STATUS == OK
+    Host->>Host: Swap .build/rootdisk.img into ~/.tart/vms/omarchy/disk.img
+    Host->>Host: Set display resolution (1512x982pt, --display-refit)
 
-    subgraph Phase2["3. Phase 2 — In-Guest Provisioning (/dev/vdb)"]
-        E --> F["Boot Builder VM Headless<br/>Attach /dev/vdb & VirtioFS Cache"]
-        F --> G["Partition /dev/vdb<br/>ESP: 512MB FAT32 (/boot/efi)<br/>Root: 40GB ext4 (/)"]
-        G --> H["Extract ALARM Rootfs & Bind Chroot<br/>/dev, /proc, /sys, /run, /dev/pts"]
-        H --> I["Bootstrap Base System & Keyring<br/>Install GRUB EFI (\\EFI\\BOOT\\BOOTAA64.EFI)"]
-        I --> J["Configure Software Rendering (llvmpipe)<br/>LIBGL_ALWAYS_SOFTWARE=1"]
-        J --> K["Build & Install Omarchy 4.0.2<br/>via omarchy-mac (quattro)"]
-        K --> L["Write BUILD-STATUS to ESP<br/>Shutdown Builder VM"]
-    end
-
-    subgraph PostBuild["4. Verification & Disk Swap"]
-        L --> M["Host Verifies BUILD-STATUS == OK<br/>via hdiutil / diskutil"]
-        M --> N["Swap Target Disk Image<br/>~/.tart/vms/omarchy/disk.img"]
-        N --> O["Configure Display & Hardware<br/>1512x982pt, --display-refit, 6 CPU, 12GB RAM"]
-    end
-
-    O --> P(["Ready-to-Run Tart VM"])
+    Note over Host,Dev: Build Complete: Native ARM64 Omarchy VM Ready
 ```
 ---
 
