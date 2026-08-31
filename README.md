@@ -92,32 +92,32 @@ OMARCHY_VERSION=4.0.2 ./build-tart.sh
 ```mermaid
 flowchart TD
     subgraph Host["1. Host Preparation (macOS Apple Silicon)"]
-        A[Download Arch Linux ARM Rootfs\nalarm-rootfs.tgz] --> B[Create 40 GB Sparse Disk\n.build/rootdisk.img]
-        B --> C[Prepare VirtioFS Package Cache\n.build/pkg-cache]
+        A["Download Arch Linux ARM Rootfs<br/>alarm-rootfs.tgz"] --> B["Create 40 GB Sparse Disk<br/>.build/rootdisk.img"]
+        B --> C["Prepare VirtioFS Package Cache<br/>.build/pkg-cache"]
     end
 
     subgraph Phase1["2. Phase 1 — Packer & Asset Staging"]
-        C --> D[Packer Clones Base VM\nghcr.io/cirruslabs/ubuntu:latest]
-        D --> E[Upload Rootfs & provision.sh\nover SSH into Builder VM]
+        C --> D["Packer Clones Base VM<br/>ghcr.io/cirruslabs/ubuntu:latest"]
+        D --> E["Upload Rootfs & provision.sh<br/>over SSH into Builder VM"]
     end
 
     subgraph Phase2["3. Phase 2 — In-Guest Provisioning (/dev/vdb)"]
-        E --> F[Boot Builder VM Headless\nAttach /dev/vdb & VirtioFS Cache]
-        F --> G[Partition /dev/vdb\nESP: 512MB FAT32 (/boot/efi)\nRoot: 40GB ext4 (/)]
-        G --> H[Extract ALARM Rootfs & Bind Chroot\n/dev, /proc, /sys, /run, /dev/pts]
-        H --> I[Bootstrap Base System & Keyring\nInstall GRUB EFI (\\EFI\\BOOT\\BOOTAA64.EFI)]
-        I --> J[Configure Software Rendering (llvmpipe)\nLIBGL_ALWAYS_SOFTWARE=1]
-        J --> K[Build & Install Omarchy 4.0.2\nvia omarchy-mac (quattro)]
-        K --> L[Write BUILD-STATUS to ESP\nShutdown Builder VM]
+        E --> F["Boot Builder VM Headless<br/>Attach /dev/vdb & VirtioFS Cache"]
+        F --> G["Partition /dev/vdb<br/>ESP: 512MB FAT32 (/boot/efi)<br/>Root: 40GB ext4 (/)"]
+        G --> H["Extract ALARM Rootfs & Bind Chroot<br/>/dev, /proc, /sys, /run, /dev/pts"]
+        H --> I["Bootstrap Base System & Keyring<br/>Install GRUB EFI (\\EFI\\BOOT\\BOOTAA64.EFI)"]
+        I --> J["Configure Software Rendering (llvmpipe)<br/>LIBGL_ALWAYS_SOFTWARE=1"]
+        J --> K["Build & Install Omarchy 4.0.2<br/>via omarchy-mac (quattro)"]
+        K --> L["Write BUILD-STATUS to ESP<br/>Shutdown Builder VM"]
     end
 
     subgraph PostBuild["4. Verification & Disk Swap"]
-        L --> M[Host Verifies BUILD-STATUS == OK\nvia hdiutil / diskutil]
-        M --> N[Swap Target Disk Image\n~/.tart/vms/omarchy/disk.img]
-        N --> O[Configure Display & Hardware\n1512x982pt, --display-refit, 6 CPU, 12GB RAM]
+        L --> M["Host Verifies BUILD-STATUS == OK<br/>via hdiutil / diskutil"]
+        M --> N["Swap Target Disk Image<br/>~/.tart/vms/omarchy/disk.img"]
+        N --> O["Configure Display & Hardware<br/>1512x982pt, --display-refit, 6 CPU, 12GB RAM"]
     end
 
-    O --> P([Ready-to-Run Tart VM])
+    O --> P(["Ready-to-Run Tart VM"])
 ```
 ---
 
