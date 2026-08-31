@@ -1,0 +1,93 @@
+name: Build and Publish Tart OCI Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for the image (e.g. 4.0.2)'
+        required: false
+        default: '4.0.2'
+        type: string
+      push_latest:
+        description: 'Also tag and push as latest'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build & Push Tart OCI Image
+    runs-on: macos-14
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Tooling Dependencies
+        run: |
+          brew update --quiet
+          brew install cirruslabs/cli/tart hashicorp/tap/packer
+
+      - name: Determine Image Version
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            RAW_TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${RAW_TAG#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="4.0.2"
+          fi
+          
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "repo_lower=${REPO_LOWER}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+          echo "Target repository: ${REPO_LOWER}"
+
+      - name: Restore Pacman Package Cache
+        uses: actions/cache@v4
+        with:
+          path: .build/pkg-cache
+          key: pacman-pkg-cache-${{ runner.os }}-${{ steps.meta.outputs.version }}-${{ github.sha }}
+          restore-keys: |
+            pacman-pkg-cache-${{ runner.os }}-${{ steps.meta.outputs.version }}-
+            pacman-pkg-cache-${{ runner.os }}-
+
+      - name: Build Native ARM64 Tart VM Image
+        env:
+          VM_NAME: omarchy
+        run: |
+          ./build-tart.sh
+
+      - name: Authenticate to GitHub Container Registry (GHCR)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | tart login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Publish Tart OCI Image to GHCR
+        run: |
+          REPO_LOWER="${{ steps.meta.outputs.repo_lower }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          IMAGE_BASE="ghcr.io/${REPO_LOWER}"
+
+          echo "Pushing OCI image: ${IMAGE_BASE}:${VERSION}"
+          tart push omarchy "${IMAGE_BASE}:${VERSION}"
+          tart push omarchy "${IMAGE_BASE}:v${VERSION}"
+
+          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == refs/tags/v* || "${{ inputs.push_latest }}" == "true" ]]; then
+            echo "Pushing OCI image: ${IMAGE_BASE}:latest"
+            tart push omarchy "${IMAGE_BASE}:latest"
+          fi
