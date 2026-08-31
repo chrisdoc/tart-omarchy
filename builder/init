@@ -1,0 +1,81 @@
+#!/bin/sh
+# tart-omarchy builder: injected into the ALARM initramfs as /init (PID 1).
+#
+# Device layout:
+#   /dev/vda   target disk (partitioned by stage1)
+#   /dev/vdb   the attached builder ISO (El Torito). Its EFI boot image is a
+#              FAT carrying: alarm-rootfs.tgz, stage1.sh, stage2.sh
+#
+# This script runs entirely unattended: it brings up DHCP, unpacks the ALARM
+# rootfs into tmpfs, then chroots into it and runs stage1.sh (which in turn
+# deploys the system to /dev/vda and installs Omarchy via omarchy-mac).
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+echo "==> tart-omarchy builder initramfs"
+
+mount -t proc none /proc 2>/dev/null
+mount -t sysfs none /sys 2>/dev/null
+mount -t devtmpfs none /dev 2>/dev/null
+mkdir -p /run /bootdev /mnt
+ln -sf /proc/mounts /etc/mtab
+
+# minimal DHCP lease script for busybox udhcpc
+cat > /etc/udhcpc.script <<'UEOF'
+#!/bin/sh
+[ "$1" = bound ] || [ "$1" = renew ] || exit 0
+ifconfig "$interface" "$ip" netmask "${subnet:-${mask:-255.255.255.0}}"
+route add default gw "$router" 2>/dev/null || true
+echo "==> dhcp: $interface $ip"
+UEOF
+chmod +x /etc/udhcpc.script
+
+for d in /sys/class/net/*; do
+  iface=${d##*/}
+  [ "$iface" = lo ] && continue
+  ip link set "$iface" up
+  udhcpc -i "$iface" -q -n -s /etc/udhcpc.script
+  break
+done
+
+# provision: the ISO shows up as a raw block device. Find the El Torito EFI
+# boot image (a FAT filesystem) by parsing the ISO boot catalog, then
+# mount it via the loop driver.
+i=0
+while [ ! -b /dev/vdb ] && [ "$i" -lt 15 ]; do sleep 1; i=$((i + 1)); done
+insmod /usr/lib/modules/*/kernel/drivers/block/loop.ko 2>/dev/null || true
+
+cat_lba=$(dd if=/dev/vdb bs=2048 skip=17 count=1 2>/dev/null | od -An -tu4 -j71 -N4 | tr -d ' ')
+espoff=$(dd if=/dev/vdb bs=2048 skip="$cat_lba" count=1 2>/dev/null | dd bs=1 skip=40 count=4 2>/dev/null | od -An -tu4 | tr -d ' ')
+[ -n "$espoff" ] && [ "$espoff" -gt 0 ] 2>/dev/null \
+  || { echo "!! could not parse the El Torito catalog"; exec /bin/sh; }
+echo "==> El Torito boot image at LBA $espoff"
+
+losetup -o $((espoff * 512)) /dev/loop0 /dev/vdb \
+  || { echo "!! cannot losetup the builder ISO"; exec /bin/sh; }
+mount -t vfat -o rw /dev/loop0 /bootdev \
+  || { echo "!! cannot mount the builder FAT"; exec /bin/sh; }
+[ -f /bootdev/alarm-rootfs.tgz ] || { echo "!! alarm-rootfs.tgz not on the builder image"; exec /bin/sh; }
+
+# unpack the rootfs into tmpfs (mkfs/partition tools live inside it)
+mount -t tmpfs -o size=8g tmpfs /mnt
+echo "==> extracting ALARM rootfs into tmpfs"
+tar -xzf /bootdev/alarm-rootfs.tgz -C /mnt
+[ -s /mnt/etc/os-release ] || { echo "!! rootfs extraction failed"; exec /bin/sh; }
+
+cp /bootdev/stage1.sh /mnt/stage1.sh
+cp /bootdev/stage2.sh /mnt/stage2.sh
+mkdir -p /mnt/bootdev
+mount --bind /bootdev /mnt/bootdev
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /mnt/etc/resolv.conf
+
+echo "==> running stage1 (bootstrap + deploy + Omarchy install)"
+chroot /mnt /bin/bash /stage1.sh
+rc=$?
+echo "==> stage1 finished rc=$rc"
+sync
+sleep 1
+poweroff -f

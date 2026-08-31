@@ -1,57 +1,112 @@
 # tart-omarchy
 
-Run [Omarchy 4 (Quattro)](https://omarchy.org) in a [Tart](https://tart.run) VM on Apple Silicon.
+Build a **Tart VM image of Omarchy 4 (Quattro)** for Apple Silicon.
 
 ## Why this exists
 
-Omarchy installs from an **x86_64 ISO** and its package mirror has no aarch64
-tree. Tart uses Apple's Virtualization.framework, which only runs **arm64**
-guests — so the official ISO cannot boot in Tart at all.
+Omarchy installs from an **x86_64 ISO** and its package repository has no
+aarch64 tree. Tart uses Apple's Virtualization.framework, which only runs
+**arm64** guests — so the official ISO cannot boot in Tart at all.
 
-The working route is an ARM64 build: Arch Linux ARM + the actual Omarchy 4
-source (the Omarchy tree is architecture-agnostic shell/Lua/QML; only its
-package repo is x86-only). The [omarchy-arm-utm](https://github.com/ggalancs/omarchy-arm-utm)
-project does this build and also publishes the finished image.
+The route that works is a native ARM64 build:
 
-## Quick start (recommended)
+- **Arch Linux ARM** rootfs as the base system
+- **[omarchy-mac](https://github.com/omarchy-mac/omarchy-mac)** (Quattro
+  branch): the community-maintained aarch64 port of Omarchy 4, with its own
+  prebuilt aarch64 package repository — its `install.sh` is the installer,
+  designed to run in a chroot
 
-```sh
-brew install cirruslabs/cli/tart qemu
-./build-tart.sh          # downloads the published image, converts it, installs it
-tart run omarchy         # login: omarchy / omarchy
+The whole build runs **unattended inside the VM** — no console interaction,
+no manual steps.
+
+## How the build works
+
+```
+host                                              VM guest
+────                                              ────────
+tart create --linux omarchy                       firmware boots the attached
+                                                  El Torito ISO (documented
+xorriso ISO with an embedded FAT                   tart path)
+  └ systemd-boot + ALARM kernel                   systemd-boot -> kernel ->
+    + initramfs with an injected                  injected /init (PID 1):
+      builder /init                                 1. DHCP, mount the FAT boot
+  └ alarm-rootfs.tgz, stage1.sh,                      image (El Torito catalog
+    stage2.sh                                         parsed at runtime)
+                                                    2. unpack ALARM rootfs into
+                                                       tmpfs, chroot
+                                                    3. stage1: pacman keyring +
+                                                       full upgrade, partition
+                                                       /dev/vda (512MB ESP +
+                                                       ext4 root), deploy the
+                                                       rootfs to disk, chroot
+                                                       into the disk copy
+                                                    4. bootctl (systemd-boot)
+                                                       + efibootmgr (registers
+                                                       the ESP in the VM's
+                                                       NVRAM so later boots
+                                                       need no ISO)
+                                                    5. stage2: omarchy-mac
+                                                       install.sh as user
+                                                       omarchy
+                                                    6. BUILD-STATUS on the
+                                                       ESP, poweroff
+host reads BUILD-STATUS back from the ESP
 ```
 
-`build-tart.sh` verifies the download's sha256, converts the qcow2 disk to the
-raw format Tart expects, and replaces the VM's disk. Inside the guest, enable
-SSH and change the password:
+All the boot pieces (kernel `Image`, initramfs, `systemd-bootaa64.efi`) are
+taken from the ALARM rootfs itself, so nothing foreign enters the image.
+
+## Usage
 
 ```sh
-sudo systemctl enable --now sshd
-passwd
+brew install cirruslabs/cli/tart xorriso
+./build-tart.sh              # full build from source (~30-45 min, ~2.5 GB dl)
 ```
 
-Then `ssh omarchy@$(tart ip omarchy)` from the Mac.
-
-## Building a custom image from source
+Then:
 
 ```sh
-./build-tart.sh --from-build
+tart run omarchy             # first boot: SDDM autologin -> Omarchy desktop
 ```
 
-This clones the upstream build, runs its fetch/prepare/build phases
-(~80 minutes, ~40 GB free, installs `qemu expect aria2` via Homebrew) and
-installs the result into Tart. To make it *your* Omarchy, fork
-`ggalancs/omarchy-arm-utm` and edit:
+`omarchy` / `omarchy` (change it: `passwd`). SSH is firewalled off by
+default, re-enable with `omarchy-setup-security-sshd` inside the guest.
 
-- `provision/src/packages-extra.txt` — extra packages
-- `provision/src/stage1.sh` … `stage3.sh` — install steps (dotfiles, configs)
-- `fixes/` — the patch series applied on top
+Alternative convenience path (skips the build, imports the published ARM64
+image from archive.org):
+
+```sh
+brew install qemu            # for qemu-img
+./build-tart.sh --download   # ~3.6 GB
+```
+
+## Files
+
+| File | Role |
+|------|------|
+| `build-tart.sh` | orchestrator: fetch, payload, ISO, VM run, status |
+| `builder/init` | injected initramfs `/init` — the unattended driver |
+| `builder/stage1.sh` | partition + deploy + bootloader + NVRAM + user |
+| `builder/stage2.sh` | omarchy-mac install (as user `omarchy`) |
+| `builder/inject-initramfs.py` | initramfs surgery (init + kernel modules) |
+
+## Status
+
+Layers verified: rootfs checksums, initramfs injection (init + injected
+`virtio_net.ko`/`loop.ko` load), El Torito ISO boots under Tart (control
+test with the alpine-virt ISO), ESP/GPT layout mounts from the host, the
+VM survives a full boot cycle with the builder ISO attached.
+
+Still in flight at last session: confirming the builder chain end-to-end
+(the guest's serial console stays silent — the kernel console is set to
+`hvc0`, and a full run had not yet been observed to completion). Debugging
+continues from `build-tart.sh`; the full console transcript is written to
+`.build/console.log` and the build result to the ESP's `BUILD-STATUS`.
 
 ## Notes
 
-- The published image is sanitised (no personal identity) — change the
-  passwords before real use.
-- Clipboard sharing works through Tart's spice-vdagent support.
-- `tart run --rosetta` is not needed: the image is fully native arm64.
-- Tart boots Linux guests via UEFI, so any arm64 disk with a UEFI bootloader
-  (this image uses systemd-boot) works as a Tart disk.
+- x86_64-only Omarchy packages (obs-studio, pinta, obsidian …) are skipped
+  by the aarch64 installer by design.
+- The final image is a plain ext4 root + systemd-boot; no LUKS (it is a
+  VM disk, not a laptop), no snapper baselines.
+- `tart set omarchy --memory 16384 --cpu 8` to give it more room.
