@@ -19,19 +19,24 @@ on:
         default: true
         type: boolean
       runner:
-        description: 'Runner label (e.g. macos-15 or self-hosted)'
+        description: 'Runner label (use self-hosted, macOS, ARM64 for bare-metal)'
         required: false
-        default: 'macos-15'
+        default: 'self-hosted,macOS,ARM64'
         type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  TART_REGISTRY_HOSTNAME: ghcr.io
+  TART_REGISTRY_USERNAME: ${{ github.actor }}
+  TART_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   build-and-publish:
     name: Build & Push Tart OCI Image
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ (inputs.runner && fromJSON(format('["{0}"]', join(split(inputs.runner, ','), '","')))) || fromJSON('["self-hosted", "macOS", "ARM64"]') }}
     permissions:
       contents: read
       packages: write
@@ -82,10 +87,6 @@ jobs:
         run: |
           ./build-tart.sh
 
-      - name: Authenticate to GitHub Container Registry (GHCR)
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | tart login ghcr.io --username "${{ github.actor }}" --password-stdin
-
       - name: Publish Tart OCI Image to GHCR
         run: |
           REPO_LOWER="${{ steps.meta.outputs.repo_lower }}"
@@ -100,3 +101,9 @@ jobs:
             echo "Pushing OCI image: ${IMAGE_BASE}:latest"
             tart push omarchy "${IMAGE_BASE}:latest"
           fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          tart delete omarchy 2>/dev/null || true
+          rm -f .build/rootdisk.img
